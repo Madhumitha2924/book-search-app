@@ -1,12 +1,19 @@
-Book Search app: 
+📚 Folio — Book Search App
 
--Search millions of books by title, author, or keyword
--Filter by category — Fiction, Science, History, Self Help, Technology, Biography
--Switch between Grid view and List view
--Click any book → full detail modal with description, ratings, page count, ISBN, publisher, language
--Add books to a Reading Shelf saved in localStorage (persists on refresh)
--Click Preview ↗ to open the Google Books preview page
--Books without covers get a beautiful colored spine with the title on it.
+A clean, elegant book discovery app powered by the Google Books API. Search millions of books, view full details, and build your personal reading shelf — all in a single HTML file with zero setup.
 
-Author:
-C.Madhumitha
+✨ Features
+
+🔍 Search millions of books by title, author, ISBN, or keyword
+🏷️ Category filters — Fiction, Science, History, Self Help, Technology, Biography
+📖 Detailed book modal — cover, plot, author, ratings, page count, publisher, ISBN, language
+📚 Personal Reading Shelf — save books with localStorage (persists across sessions)
+⊞ Grid & List view toggle for results
+🎨 Colored book spines for books without cover images
+🔗 Google Books preview link for each book
+📱 Fully responsive — works on mobile and desktop
+⚡ No API key needed — works right out of the box
+
+📬 Connect
+Madhumitha.C
+https://github.com/Madhumitha2924
