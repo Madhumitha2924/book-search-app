@@ -740,10 +740,7 @@
   <!-- MAIN -->
   <main>
     <!-- Skeletons -->
-    <div class="skeleton-grid" id="skelGrid">
-      ${Array(10).fill(`
-        <div class="skel-card">
-          <div class="skel-cover"></div>
+    <div class="skeleton-grid" id="skelGrid"></div>
           <div class="skel-line"></div>
           <div class="skel-line short"></div>
           <div class="skel-line tiny"></div>
@@ -751,9 +748,15 @@
     </div>
 
     <!-- Results bar -->
+    <!-- Results bar -->
     <div class="results-bar" id="resultsBar">
       <div class="results-info" id="resultsInfo"></div>
       <div class="view-toggle">
+        <select id="sortSelect" onchange="doSearch(null, true)" style="margin-right: 10px; padding: 4px; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border2); background: transparent; color: var(--muted); cursor: pointer; outline: none;">
+          <option value="">Sort: Relevance</option>
+          <option value="new">Sort: Newest</option>
+          <option value="old">Sort: Oldest</option>
+        </select>
         <button class="view-btn active" id="gridBtn" onclick="setView('grid')" title="Grid view">⊞</button>
         <button class="view-btn" id="listBtn" onclick="setView('list')" title="List view">☰</button>
       </div>
@@ -761,6 +764,10 @@
 
     <!-- Books -->
     <div class="books-grid" id="booksGrid"></div>
+    
+    <div id="loadMoreContainer" style="display: none; text-align: center; margin-top: 2rem;">
+      <button class="search-btn" onclick="loadMore()" id="loadMoreBtn" style="padding: 12px 30px; border-radius: 99px;">Load More</button>
+    </div>
 
     <!-- States -->
     <div class="state-box show" id="emptyState">
@@ -801,33 +808,74 @@
     let activeFilter = '';
     let currentQuery = '';
     let viewMode = 'grid';
+    let currentPage = 1;
+    let isLoadingMore = false;
 
-    const API = 'https://www.googleapis.com/books/v1/volumes';
+    const API = 'https://openlibrary.org/search.json';
     const COLORS = ['#2d4a35','#3d5c6a','#5a3a2a','#4a3d5c','#5c4a2a','#2a4a4a','#5c3a3a'];
 
     /* ── SEARCH ── */
-    async function doSearch(customQ) {
+    async function doSearch(customQ, reset = true) {
       const rawQ = customQ || document.getElementById('searchInput').value.trim();
       if (!rawQ) return;
-      const q = activeFilter && !rawQ.includes(activeFilter) ? `${rawQ}+subject:${activeFilter}` : rawQ;
+      const q = activeFilter && !rawQ.includes(activeFilter) ? `${rawQ} subject:${activeFilter}` : rawQ;
       currentQuery = rawQ;
 
-      showLoading();
+      if (reset) {
+        currentPage = 1;
+        allBooks = [];
+        showLoading();
+      } else {
+        isLoadingMore = true;
+        const btn = document.getElementById('loadMoreBtn');
+        if (btn) btn.textContent = 'Loading...';
+      }
+
+      const sortVal = document.getElementById('sortSelect')?.value || '';
+      let url = `${API}?q=${encodeURIComponent(q)}&limit=30&page=${currentPage}`;
+      if (sortVal) url += `&sort=${sortVal}`;
+
       try {
-        const res = await fetch(`${API}?q=${encodeURIComponent(q)}&maxResults=30&printType=books`);
+        const res = await fetch(url);
         if (!res.ok) throw new Error('Network error');
         const data = await res.json();
 
-        if (!data.items || data.items.length === 0) { showNoResults(); return; }
-        allBooks = data.items;
-        renderBooks(allBooks);
+        if (!data.docs || data.docs.length === 0) {
+          if (reset) showNoResults();
+          else {
+            document.getElementById('loadMoreContainer').style.display = 'none';
+          }
+          return;
+        }
+
+        if (reset) allBooks = data.docs;
+        else allBooks = allBooks.concat(data.docs);
+
+        renderBooks(allBooks, reset);
+
+        // Show load more if there might be more results
+        const loadMoreContainer = document.getElementById('loadMoreContainer');
+        if (loadMoreContainer) {
+          loadMoreContainer.style.display = data.numFound > allBooks.length ? 'block' : 'none';
+        }
+        
       } catch(e) {
-        showError('Failed to fetch', 'Check your internet connection');
+        if (reset) showError('Failed to fetch', 'Check your internet connection or API rate limit.');
+      } finally {
+        isLoadingMore = false;
+        const btn = document.getElementById('loadMoreBtn');
+        if (btn) btn.textContent = 'Load More';
       }
     }
 
+    function loadMore() {
+      if (isLoadingMore) return;
+      currentPage++;
+      doSearch(currentQuery, false);
+    }
+
     /* ── RENDER ── */
-    function renderBooks(books) {
+    function renderBooks(books, reset = true) {
       hideStates();
       const grid = document.getElementById('booksGrid');
       const bar = document.getElementById('resultsBar');
@@ -836,17 +884,16 @@
       bar.style.display = 'flex';
       info.innerHTML = `<strong>${books.length}</strong> books for "<strong>${currentQuery}</strong>"`;
 
-      grid.innerHTML = books.map((b, i) => {
-        const v = b.volumeInfo || {};
-        const title = v.title || 'Untitled';
-        const authors = (v.authors || ['Unknown']).join(', ');
-        const year = v.publishedDate ? v.publishedDate.slice(0,4) : '';
-        const cover = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '';
-        const desc = (v.description || '').slice(0, 100);
+      const html = books.map((b, i) => {
+        const title = b.title || 'Untitled';
+        const authors = (b.author_name || ['Unknown']).join(', ');
+        const year = b.first_publish_year || '';
+        const cover = b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '';
+        const desc = ''; // Open library search doesn't return description
         const color = COLORS[i % COLORS.length];
 
         const coverHTML = cover
-          ? `<img class="card-cover" src="${cover.replace('http:','https:')}" alt="${escHtml(title)}" loading="lazy"/>`
+          ? `<img class="card-cover" src="${cover}" alt="${escHtml(title)}" loading="lazy"/>`
           : `<div class="card-no-cover" style="background:${color}; position:relative; aspect-ratio:2/3;">
                <div class="no-cover-spine">
                  <div class="spine-title">${escHtml(title)}</div>
@@ -858,7 +905,7 @@
           ? `<div class="card-desc">${escHtml(desc)}${desc.length >= 100 ? '…' : ''}</div>` : '';
 
         return `
-          <div class="book-card" style="animation-delay:${i * 0.03}s" onclick="openModal('${b.id}')">
+          <div class="book-card" style="animation-delay:${(i % 30) * 0.03}s" onclick="openModal('${b.key}')">
             <div class="card-cover-wrap">
               ${coverHTML}
               <div class="card-read-btn"><div class="read-inner">View Details</div></div>
@@ -871,6 +918,9 @@
             </div>
           </div>`;
       }).join('');
+
+      if (reset) grid.innerHTML = html;
+      else grid.innerHTML = html; // Because we rebuild html from allBooks
     }
 
     /* ── VIEW TOGGLE ── */
@@ -880,7 +930,7 @@
       grid.className = 'books-grid' + (mode === 'list' ? ' list-view' : '');
       document.getElementById('gridBtn').classList.toggle('active', mode === 'grid');
       document.getElementById('listBtn').classList.toggle('active', mode === 'list');
-      if (allBooks.length) renderBooks(allBooks);
+      if (allBooks.length) renderBooks(allBooks, true);
     }
 
     /* ── FILTER ── */
@@ -893,7 +943,7 @@
     }
 
     /* ── MODAL ── */
-    async function openModal(bookId) {
+    async function openModal(bookKey) {
       const overlay = document.getElementById('modalOverlay');
       const inner = document.getElementById('modalInner');
       overlay.classList.add('open');
@@ -901,44 +951,47 @@
       inner.innerHTML = `<div style="grid-column:1/-1; padding:3rem; font-family:var(--font-display); font-style:italic; color:var(--muted); font-size:18px;">Loading…</div>`;
 
       try {
-        const res = await fetch(`${API}/${bookId}`);
+        const res = await fetch(`https://openlibrary.org${bookKey}.json`);
         const b = await res.json();
-        const v = b.volumeInfo || {};
 
-        const title = v.title || 'Untitled';
-        const subtitle = v.subtitle || '';
-        const authors = (v.authors || ['Unknown author']).join(', ');
-        const cover = v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '';
-        const desc = v.description || 'No description available.';
-        const pages = v.pageCount;
-        const year = v.publishedDate ? v.publishedDate.slice(0,4) : '';
-        const publisher = v.publisher || '';
-        const cats = v.categories || [];
-        const rating = v.averageRating || 0;
-        const ratingCount = v.ratingsCount || 0;
-        const lang = v.language || '';
-        const isbn = (v.industryIdentifiers || []).find(x => x.type === 'ISBN_13')?.identifier || '';
-        const previewLink = v.previewLink || v.infoLink || '';
+        const searchBook = allBooks.find(book => book.key === bookKey) || {};
+        
+        const title = b.title || searchBook.title || 'Untitled';
+        const subtitle = b.subtitle || '';
+        
+        let authors = 'Unknown author';
+        if (searchBook.author_name && searchBook.author_name.length > 0) {
+          authors = searchBook.author_name.join(', ');
+        }
+        
+        const cover = b.covers && b.covers.length > 0 
+           ? `https://covers.openlibrary.org/b/id/${b.covers[0]}-M.jpg` 
+           : (searchBook.cover_i ? `https://covers.openlibrary.org/b/id/${searchBook.cover_i}-M.jpg` : '');
+           
+        let desc = 'No description available.';
+        if (b.description) {
+           desc = typeof b.description === 'string' ? b.description : (b.description.value || desc);
+        }
+        
+        const pages = b.number_of_pages || '';
+        const year = b.first_publish_date || searchBook.first_publish_year || '';
+        const publisher = b.publishers ? b.publishers.join(', ') : '';
+        const cats = b.subjects ? b.subjects.slice(0, 3) : [];
+        const previewLink = `https://openlibrary.org${bookKey}`;
         const cleanDesc = desc.replace(/<[^>]+>/g,'').slice(0, 500);
 
-        const inShelf = shelf.some(s => s.id === bookId);
-
-        // Stars
-        const fullStars = Math.floor(rating);
-        const starsHTML = Array.from({length:5}, (_,i) =>
-          `<span class="star ${i < fullStars ? '' : 'empty'}">★</span>`).join('');
-
+        const inShelf = shelf.some(s => s.id === bookKey);
         const color = COLORS[Math.floor(Math.random() * COLORS.length)];
 
         inner.innerHTML = `
           <div class="modal-cover-col">
             ${cover
-              ? `<img class="modal-cover" src="${cover.replace('http:','https:')}" alt="${escHtml(title)}"/>`
+              ? `<img class="modal-cover" src="${cover}" alt="${escHtml(title)}"/>`
               : `<div class="modal-no-cover" style="background:${color}"><div class="modal-no-cover-text">${escHtml(title.slice(0,2))}</div></div>`
             }
           </div>
           <div class="modal-body">
-            ${cats.length ? `<div class="modal-cats">${cats.slice(0,3).map(c => `<span class="modal-cat">${c}</span>`).join('')}</div>` : ''}
+            ${cats.length ? `<div class="modal-cats">${cats.map(c => `<span class="modal-cat">${c}</span>`).join('')}</div>` : ''}
             <h2 class="modal-title">${escHtml(title)}</h2>
             ${subtitle ? `<div class="modal-subtitle">${escHtml(subtitle)}</div>` : ''}
             <div class="modal-author">by ${escHtml(authors)}</div>
@@ -947,24 +1000,16 @@
               ${year ? `<span class="meta-pill"><strong>${year}</strong></span>` : ''}
               ${pages ? `<span class="meta-pill"><strong>${pages}</strong> pages</span>` : ''}
               ${publisher ? `<span class="meta-pill">${escHtml(publisher)}</span>` : ''}
-              ${lang ? `<span class="meta-pill">Lang: <strong>${lang.toUpperCase()}</strong></span>` : ''}
-              ${isbn ? `<span class="meta-pill">ISBN: <strong>${isbn}</strong></span>` : ''}
             </div>
-
-            ${rating ? `
-            <div class="rating-row">
-              <div class="stars">${starsHTML}</div>
-              <span class="rating-text">${rating.toFixed(1)} / 5 · ${ratingCount} ratings</span>
-            </div>` : ''}
 
             <p class="modal-desc">${escHtml(cleanDesc)}${cleanDesc.length >= 500 ? '…' : ''}</p>
 
             <div class="modal-actions">
               <button class="btn-shelf ${inShelf ? 'added' : ''}" id="shelfBtn"
-                onclick="toggleShelf('${bookId}', '${escAttr(title)}', '${cover.replace('http:','https:')}')">
+                onclick="toggleShelf('${bookKey}', '${escAttr(title)}', '${cover}')">
                 ${inShelf ? '✓ On My Shelf' : '+ Add to Shelf'}
               </button>
-              ${previewLink ? `<a class="btn-preview" href="${previewLink}" target="_blank">Preview ↗</a>` : ''}
+              ${previewLink ? `<a class="btn-preview" href="${previewLink}" target="_blank">View on OpenLibrary ↗</a>` : ''}
             </div>
           </div>
         `;
@@ -1025,7 +1070,19 @@
     /* ── UI UTILS ── */
     function showLoading() {
       hideStates();
-      document.getElementById('skelGrid').style.display = 'grid';
+      const loadMoreContainer = document.getElementById('loadMoreContainer');
+      if (loadMoreContainer) loadMoreContainer.style.display = 'none';
+      
+      const skelGrid = document.getElementById('skelGrid');
+      skelGrid.style.display = 'grid';
+      skelGrid.innerHTML = Array(10).fill(`
+        <div class="skel-card">
+          <div class="skel-cover"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line short"></div>
+          <div class="skel-line tiny"></div>
+        </div>`).join('');
+        
       document.getElementById('booksGrid').innerHTML = '';
       document.getElementById('resultsBar').style.display = 'none';
     }
@@ -1061,6 +1118,7 @@
 
     /* ── INIT ── */
     updateShelfUI();
+
   </script>
 </body>
 </html>
